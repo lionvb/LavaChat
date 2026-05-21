@@ -20,7 +20,7 @@ from src.encrypt_decrypt.key_generator import (
 )
 #Partage Victor : 10.211.31.253
 #Partage Louis  : 10.112.177.253
-IP_SERV = "10.211.31.253"
+IP_SERV = "10.112.177.253"
 
 BASE_HTTP = f"http://{IP_SERV}:8000"
 BASE_WS = f"ws://{IP_SERV}:8000"  
