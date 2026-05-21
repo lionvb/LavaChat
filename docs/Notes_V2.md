@@ -30,12 +30,10 @@ Diagramme pour visualiser la pipeline de main.py :
 image lava lamp
         ↓ image_to_bytes()
 bytes brutes
-        ↓ bytes_to_grands_entiers()
+        ↓ seed_vers_grands_entiers()
 grands entiers (entropy seed)
         ↓ generer_cles_rsa()
 clé RSA
-        ↓ chiffrer()
-message chiffé
-        ↓ dechiffrer()
-message déchiffré
+        ↓ chiffrer() / dechiffrer()
+message_chiffre.txt  →  message_dechiffre.txt
 ```

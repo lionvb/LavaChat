@@ -124,8 +124,7 @@ def seed_vers_grands_entiers(seed: bytes) -> tuple:
  
     Retourne
     --------
-    (nombre_1, nombre_2) : deux entiers de TARGET_BITS bits,
-                           à passer à generer_cles_rsa()
+    (nombre_1, nombre_2) : deux entiers de TARGET_BITS bits
     """
     TARGET_BITS  = 512          # taille souhaitée en bits pour p et q
     TARGET_BYTES = TARGET_BITS // 8   # = 64 octets
@@ -143,7 +142,7 @@ def seed_vers_grands_entiers(seed: bytes) -> tuple:
             ).digest()                      # 64 octets
             resultat += bloc
             compteur += 1
-        # Tronquer à exactement TARGET_BYTES octets
+        # Limiter à exactement TARGET_BYTES octets
         resultat = resultat[:TARGET_BYTES]
         # Forcer le bit de poids fort à 1 → garantir exactement TARGET_BITS bits
         resultat = bytes([resultat[0] | 0x80]) + resultat[1:]
