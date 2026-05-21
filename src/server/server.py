@@ -16,6 +16,7 @@ import cv2
 from src.server.number_generator.setup import images_to_bytes
 
 import time
+import subprocess
 
 async def envoyer_erreur(ws: WebSocket, raison: str, to: str | None = None) -> None:
     """Envoie un message d'erreur structuré à un client WS."""
@@ -115,26 +116,50 @@ def capturer_photo_webcam() -> bytes:
             detail="Webcam indisponible.",
         )
     try:
-        # Vider le buffer : lire et jeter les premières frames noires
-        for _ in range(10):
-            camera.read()
+        #On force la haute résolution
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-        # Lire la frame exploitable
+        # On met le serveur en pause pendant 2 secondes. 
+        # La caméra est allumée et son capteur s'ajuste à la lumière réelle.
+        print("Calibrage du capteur de la webcam...")
+        time.sleep(2.0)
+
+        # Pendant ces 2 secondes, Linux a stocké les toutes premières images 
+        # (les petites et noires) dans la mémoire tampon (buffer) de la caméra.
+        # On lit et on jette rapidement les 10 premières images pour vider ce buffer.
+        for _ in range(10):
+            camera.grab()  # grab() est comme read(), mais ultra-rapide car il ne décode pas l'image
+
         ok, frame = camera.read()
         if not ok:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Impossible de lire un frame depuis la webcam.",
             )
+            
+        cv2.imwrite("test_entropie.jpg", frame)
+        print("Capture réussie ! Photo sauvegardée.")
 
-        cv2.imshow("Entropie capturée", frame)
-        cv2.waitKey(3000)
-        cv2.destroyAllWindows()
+        # On crée un script Python d'une ligne qui lit l'image, l'affiche,
+        # attend 3000 millisecondes (3 secondes), puis s'arrête tout seul.
+        code_affichage = (
+            "import cv2; "
+            "img = cv2.imread('test_entropie.jpg'); "
+            "cv2.imshow('Validation Entropie (fermeture auto)', img); "
+            "cv2.waitKey(3000)"
+        )
+        
+        try:
+            # On lance ce mini-script en tâche de fond
+            subprocess.Popen(["python3", "-c", code_affichage])
+        except Exception as e:
+            print(f"Impossible de lancer l'affichage : {e}")
 
         return images_to_bytes(frame)
     finally:
-        camera.release()
-
+        camera.release()       
+        
 @app.get("/seed", response_model=ReponseSeed)
 def obtenir_seed() -> ReponseSeed:
     """
