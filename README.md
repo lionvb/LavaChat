@@ -12,6 +12,7 @@
 - [V1 : Preuve de concept](#v1--preuve-de-concept)
 - [V2 : Multi-images et chiffrement de fichier](#v2--multi-images-et-chiffrement-de-fichier)
 - [V3 : Chat chiffré client-serveur (RSA + AES-256-GCM)](#v3--chat-chiffré-client-serveur-rsa--aes-256-gcm)
+- [V4 : Déploiement Hardware et Réseau Local](#v4--déploiement-hardware-et-réseau-local)
 - [Documentation](#documentation)
 
 ---
@@ -283,6 +284,58 @@ Les deux clients peuvent maintenant s'écrire. Chaque message est chiffré en AE
 **Ctrl+C** dans un terminal client pour fermer la connexion.
 
 ---
+## V4 : Déploiement Hardware et Réseau Local
+La V4 fait passer le projet de la théorie à la pratique en intégrant du matériel physique. Le serveur n'utilise plus d'images pré-téléchargées mais capture l'entropie en direct via une webcam pointée sur un véritable volcan. De plus, le système est déployé sur un réseau local (LAN / Partage de connexion), séparant physiquement la machine serveur des machines clientes.
+
+### Ce qui change
+Entropie Matérielle : Utilisation de cv2 (OpenCV) côté serveur pour déclencher la webcam et capturer une photo de la lampe à lave à la volée lors de la requête /seed.
+
+Réseau Local : Le serveur FastAPI écoute sur 0.0.0.0 pour être accessible par n'importe quelle machine connectée au même Wi-Fi ou partage de connexion.
+
+Décentralisation : Les scripts clients s'exécutent sur des ordinateurs distincts du serveur Debian hébergeant la webcam.
+
+### Architecture
+**Serveur central** (Machine Debian + Webcam) :
+- Génération de l'entropie physique en direct.
+- Registre public des clés RSA.
+- Relais aveugle des messages chiffrés (WebSocket).
+
+**Machines clientes** (Connectées au même réseau) :
+- Création locale des clés RSA dérivées de la seed.
+- Chiffrement/Déchiffrement hybride (RSA + AES-256-GCM).
+
+### Utilisation : Procédure de test en réseau
+**Étape 1** : Lancer le serveur (Sur le PC Debian avec la webcam)
+
+Connectez le PC Debian au réseau (ex: partage de connexion).
+
+Récupérez son adresse IP locale en tapant ``hostname -I`` ou ``ip a`` dans le terminal (par exemple : 10.112.177.253).
+
+Lancez le serveur en l'exposant sur le réseau :
+
+
+```bash
+uvicorn src.server.server:app --host 0.0.0.0 --port 8000
+```
+$$***$$
+**Étape 2** : Configurer les clients (Sur les autres PC)
+Avant de lancer le script client, ouvrez le fichier src/client/client.py et modifiez la variable IP_SERV pour y mettre l'IP du serveur Debian obtenue à l'étape précédente :
+
+```python
+IP_SERV = "10.112.177.253" # Remplacer par l'IP du Debian
+```
+$$***$$
+
+**Étape 3** : Lancer le Chat (2 terminaux clients)
+Sur un ou deux PC différents connectés au même réseau :
+
+Client B (Récepteur) : Lance `python -m src.client.client`, renseigne son pseudo et répond n (non initiateur).
+
+Client A (Initiateur) : Lance `python -m src.client.client`, répond o (initiateur) et entre le pseudo de B.
+
+La webcam du serveur prendra une photo en direct, l'entropie sera distribuée aux clients, la clé de session AES sera échangée en RSA, et le chat sécurisé commencera !
+
+---
 
 ## Documentation
 
@@ -292,3 +345,4 @@ Les deux clients peuvent maintenant s'écrire. Chaque message est chiffré en AE
 | [`docs/Notes_V1.md`](docs/Notes_V1.md) | Contraintes et décisions de la V1 |
 | [`docs/Notes_V2.md`](docs/Notes_V2.md) | Contraintes et décisions de la V2 |
 | [`docs/Notes_V3.md`](docs/Notes_V3.md) | Contraintes et décisions de la V3 |
+| [`docs/Notes_V4.md`](docs/Notes_V4.md) | Contraintes et décisions de la V4 |

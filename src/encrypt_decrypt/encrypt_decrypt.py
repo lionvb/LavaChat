@@ -121,7 +121,6 @@ def chiffrement_AES(cle_aes: bytes, message_clair: str) -> tuple:
     # La fonction encrypt retourne le texte chiffré avec le tag d'authentification de 16 octets à la fin
     texte_chiffre_avec_tag = aesgcm.encrypt(nonce, message_bytes, associated_data=None)
     
-    print("[INFO] Message chiffré avec succès via AES-256-GCM.")
     # Nous devons retourner le nonce avec le texte chiffré, car le destinataire en a besoin pour déchiffrer !
     return nonce, texte_chiffre_avec_tag
 
@@ -146,7 +145,6 @@ def dechiffrement_AES(cle_aes: bytes, nonce: bytes, texte_chiffre_avec_tag: byte
         # La méthode decrypt extrait et vérifie automatiquement le tag d'authentification
         octets_dechiffres = aesgcm.decrypt(nonce, texte_chiffre_avec_tag, associated_data=None)
         
-        print("[INFO] Message déchiffré et authentifié avec succès.")
         return octets_dechiffres.decode('utf-8')
         
     except InvalidTag:

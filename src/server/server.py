@@ -4,15 +4,19 @@ Serveur FastAPI — V3 du projet lava_entropy.
 Étape 1 : squelette minimal.
 Permet uniquement de valider que la stack ASGI tourne.
 
-Lancement depuis la racine du projet : >> uvicorn src.server.server:app --reload
+Lancement en localhost : >> uvicorn src.server.server:app --reload
+Lancemnet en réseau local : >> uvicorn src.server.server:app --host 0.0.0.0 --port 8000
 """
 import json
-import os
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
 
+import cv2
 from src.server.number_generator.setup import images_to_bytes
+
+import time
+import subprocess
 
 async def envoyer_erreur(ws: WebSocket, raison: str, to: str | None = None) -> None:
     """Envoie un message d'erreur structuré à un client WS."""
@@ -104,14 +108,65 @@ def inscrire(demande: DemandeInscription) -> ReponseInscription:
     utilisateurs.add(demande.username)
     return ReponseInscription(username=demande.username, status="registered")
 
-PHOTO_PATH = os.path.join(os.path.dirname(__file__), "Pictures")
+def capturer_photo_webcam() -> bytes:
+    camera = cv2.VideoCapture(0)
+    if not camera.isOpened():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webcam indisponible.",
+        )
+    try:
+        #On force la haute résolution
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
+        # On met le serveur en pause pendant 2 secondes. 
+        # La caméra est allumée et son capteur s'ajuste à la lumière réelle.
+        print("Calibrage du capteur de la webcam...")
+        time.sleep(2.0)
+
+        # Pendant ces 2 secondes, Linux a stocké les toutes premières images 
+        # (les petites et noires) dans la mémoire tampon (buffer) de la caméra.
+        # On lit et on jette rapidement les 10 premières images pour vider ce buffer.
+        for _ in range(10):
+            camera.grab()  # grab() est comme read(), mais ultra-rapide car il ne décode pas l'image
+
+        ok, frame = camera.read()
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Impossible de lire un frame depuis la webcam.",
+            )
+            
+        cv2.imwrite("test_entropie.jpg", frame)
+        print("Capture réussie ! Photo sauvegardée.")
+
+        # On crée un script Python d'une ligne qui lit l'image, l'affiche,
+        # attend 3000 millisecondes (3 secondes), puis s'arrête tout seul.
+        code_affichage = (
+            "import cv2; "
+            "img = cv2.imread('test_entropie.jpg'); "
+            "cv2.imshow('Validation Entropie (fermeture auto)', img); "
+            "cv2.waitKey(3000)"
+        )
+        
+        try:
+            # On lance ce mini-script en tâche de fond
+            subprocess.Popen(["python3", "-c", code_affichage])
+        except Exception as e:
+            print(f"Impossible de lancer l'affichage : {e}")
+
+        return images_to_bytes(frame)
+    finally:
+        camera.release()       
+        
 @app.get("/seed", response_model=ReponseSeed)
 def obtenir_seed() -> ReponseSeed:
     """
-    Renvoie une seed d'entropie de 64 octets (512 bits) en hexadécimal.
+    Capture une photo via la webcam du serveur, l'utilise comme
+    source d'entropie et renvoie une seed en hexadécimal.
     """
-    # Génération des clés RSA
-    seed = images_to_bytes(PHOTO_PATH).hex()
+    seed = capturer_photo_webcam().hex()
     return ReponseSeed(seed=seed)
 
 @app.post(

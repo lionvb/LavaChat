@@ -5,6 +5,8 @@ import base64
 import httpx
 import websockets
 
+"""python -m src.client.client"""
+
 from src.encrypt_decrypt.encrypt_decrypt import (
     chiffrer_RSA,
     dechiffrer_RSA,
@@ -16,10 +18,12 @@ from src.encrypt_decrypt.key_generator import (
     generer_cles_rsa,
     seed_vers_grands_entiers,
 )
+#Partage Victor : 10.211.31.253
+#Partage Louis  : 10.112.177.253
+IP_SERV = "10.112.177.253"
 
-
-BASE_HTTP = "http://localhost:8000"
-BASE_WS = "ws://localhost:8000"
+BASE_HTTP = f"http://{IP_SERV}:8000"
+BASE_WS = f"ws://{IP_SERV}:8000"  
 
 
 def set_username():
@@ -36,7 +40,7 @@ def enregistrer(username: str) -> None:
 
 def obtenir_seed() -> str:
     """Récupère une seed d'entropie de 64 octets en hexadécimal via GET /seed."""
-    r = httpx.get(f"{BASE_HTTP}/seed", timeout=5.0)
+    r = httpx.get(f"{BASE_HTTP}/seed", timeout=30)
     r.raise_for_status()
     return r.json()["seed"]
 
