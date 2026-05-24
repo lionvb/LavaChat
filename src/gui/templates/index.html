@@ -580,7 +580,7 @@ document.getElementById('input-username').addEventListener('keydown', e => {
 
 // ── WebSocket bridge ──────────────────────────────────────────────────────────
 function openWebSocket() {
-  ws = new WebSocket(`ws://localhost:5000/ws`);
+  ws = new WebSocket(`ws://localhost:5000/ws?user=${encodeURIComponent(myName)}`);
 
   ws.onopen = () => {
     showScreen('screen-handshake');
@@ -621,7 +621,7 @@ document.getElementById('btn-init').addEventListener('click', async () => {
     const r = await fetch('/handshake/init', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ destinataire: dest }),
+      body: JSON.stringify({ username: myName, destinataire: dest }),
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'Erreur handshake.');
@@ -641,7 +641,7 @@ document.getElementById('btn-recv').addEventListener('click', async () => {
     const r = await fetch('/handshake/wait', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ username: myName }),
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'Délai dépassé.');
@@ -706,7 +706,7 @@ async function sendMessage() {
     const r = await fetch('/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, to: peerName }),
+      body: JSON.stringify({ username: myName, text, to: peerName }),
     });
     const data = await r.json();
     if (data.ok) {
