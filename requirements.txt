@@ -7,3 +7,5 @@ pydantic
 httpx
 cryptography
 opencv-python
+flask
+flask-sock
