@@ -385,6 +385,62 @@
   }
   .send-btn:hover  { background: var(--accent2); }
   .send-btn svg { fill: #fff; width: 16px; height: 16px; }
+
+  /* ── Cipher modal ── */
+  #cipher-modal {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  #cipher-modal.visible { display: flex; }
+  .modal-box {
+    width: 480px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 28px;
+    animation: msg-in .2s ease;
+  }
+  .modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 24px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .modal-header button {
+    background: none; border: none;
+    color: var(--muted); cursor: pointer; font-size: 14px;
+  }
+  .modal-header button:hover { color: var(--text); }
+  .modal-field { margin-bottom: 16px; }
+  .modal-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .modal-value {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+    word-break: break-all;
+    line-height: 1.6;
+    padding: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+  .msg { cursor: pointer; }
+  .msg:hover .msg-bubble { opacity: .85; transition: opacity .15s; }
 </style>
 </head>
 <body>
@@ -663,25 +719,26 @@ function enterChat() {
 
 function appendMessage(from, msg, direction) {
   const container = document.getElementById('chat-messages');
-
-  // Déchiffrement côté serveur Flask déjà fait —
-  // ici on affiche le texte en clair reçu via le WS bridge
-  let text = '';
-  if (msg._plain !== undefined) {
-    text = msg._plain;
-  } else {
-    // fallback : afficher les champs bruts
-    text = msg.ciphertext ? '[message chiffré]' : (msg.text || '');
-  }
+  let text = msg._plain !== undefined
+    ? msg._plain
+    : (msg.ciphertext ? '[message chiffré]' : (msg.text || ''));
 
   const time = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
   const div = document.createElement('div');
   div.className = `msg ${direction}`;
+
+  // Stockage des données chiffrées
+  if (msg.nonce)      div.dataset.nonce      = msg.nonce;
+  if (msg.ciphertext) div.dataset.ciphertext = msg.ciphertext;
+  if (msg.tag)        div.dataset.tag        = msg.tag;
+
   div.innerHTML = `
     <div class="msg-bubble">${escapeHtml(text)}</div>
-    <div class="msg-meta">${direction === 'sent' ? 'vous' : escapeHtml(from)} · ${time}</div>
+    <div class="msg-meta">${direction === 'sent' ? 'vous' : escapeHtml(from)} · ${time} · <span style="color:var(--muted);font-size:10px">cliquer pour voir chiffré</span></div>
   `;
+
+  div.addEventListener('click', () => showCipherModal(div.dataset));
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
 }
@@ -710,7 +767,7 @@ async function sendMessage() {
     });
     const data = await r.json();
     if (data.ok) {
-      appendMessage(myName, { _plain: text }, 'sent');
+      appendMessage(myName, { _plain: text, nonce: data.nonce, ciphertext: data.ciphertext, tag: data.tag }, 'sent');
       input.value = '';
       input.style.height = 'auto';
     }
@@ -743,6 +800,47 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ── Cipher modal ─────────────────────────────────────────────────────────────
+function showCipherModal(data) {
+  document.getElementById('modal-nonce').textContent      = data.nonce      || '—';
+  document.getElementById('modal-ciphertext').textContent = data.ciphertext || '—';
+  document.getElementById('modal-tag').textContent        = data.tag        || '—';
+  document.getElementById('cipher-modal').classList.add('visible');
+}
+
+</script>
+
+<!-- ── Cipher modal ── -->
+<div id="cipher-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span>Données chiffrées AES-GCM</span>
+      <button id="modal-close">✕</button>
+    </div>
+    <div class="modal-field">
+      <div class="modal-label">Nonce</div>
+      <div class="modal-value" id="modal-nonce"></div>
+    </div>
+    <div class="modal-field">
+      <div class="modal-label">Ciphertext</div>
+      <div class="modal-value" id="modal-ciphertext"></div>
+    </div>
+    <div class="modal-field">
+      <div class="modal-label">Tag</div>
+      <div class="modal-value" id="modal-tag"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('modal-close').addEventListener('click', () => {
+  document.getElementById('cipher-modal').classList.remove('visible');
+});
+document.getElementById('cipher-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('cipher-modal'))
+    document.getElementById('cipher-modal').classList.remove('visible');
+});
 </script>
 </body>
 </html>

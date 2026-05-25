@@ -195,7 +195,12 @@ def send_message():
             sess["ws_cloudflare"].send(json.dumps(msg)),
             sess["loop"],
         ).result(timeout=5)
-        return jsonify({"ok": True})
+        return jsonify({
+            "ok":         True,
+            "nonce":      base64.b64encode(nonce).decode("ascii"),
+            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+            "tag":        base64.b64encode(tag).decode("ascii"),
+        })
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
