@@ -36,6 +36,9 @@ cles_publiques: dict[str, dict] = {}
 # Connexions WebSocket actives : 
 connexions: dict[str, WebSocket] = {}
 
+# File d'attente des messages aes_key pour les destinataires non encore connectés
+# { username_destinataire: [message_json, ...] }
+aes_key_en_attente: dict[str, list] = {}
 
 # ---------------------------------------------------------------------------
 # Schémas Pydantic
@@ -249,6 +252,11 @@ async def chat(websocket: WebSocket):
         return
 
     connexions[username] = websocket
+
+    # Livraison des messages aes_key reçus pendant que le client était offline
+    for msg_en_attente in aes_key_en_attente.pop(username, []):
+        await websocket.send_text(json.dumps(msg_en_attente))
+        
     try:
         while True:
             raw = await websocket.receive_text()
@@ -275,18 +283,21 @@ async def chat(websocket: WebSocket):
                 await envoyer_erreur(websocket, "to_manquant")
                 continue
 
-            # Vérification : destinataire connecté ?
-            ws_dest = connexions.get(destinataire)
-            if ws_dest is None:
-                await envoyer_erreur(websocket, "recipient_offline", to=destinataire)
-                continue
-
-            # Routage : on remplace `to` par `from` (le destinataire sait
-            # déjà qu'il est `to`, ce qui l'intéresse c'est l'expéditeur).
+            # Routage
             message_relaye = {k: v for k, v in message.items() if k != "to"}
             message_relaye["from"] = username
 
-            await ws_dest.send_text(json.dumps(message_relaye))
+            ws_dest = connexions.get(destinataire)
+            if ws_dest is not None:
+                # Destinataire connecté : envoi immédiat
+                await ws_dest.send_text(json.dumps(message_relaye))
+            else:
+                if type_msg == "aes_key":
+                    # Destinataire offline : on met en file d'attente
+                    aes_key_en_attente.setdefault(destinataire, []).append(message_relaye)
+                else:
+                    # Messages normaux non délivrables : on notifie l'expéditeur
+                    await envoyer_erreur(websocket, "recipient_offline", to=destinataire)
 
     except WebSocketDisconnect:
         pass
