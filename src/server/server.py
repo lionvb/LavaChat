@@ -18,6 +18,27 @@ from src.server.number_generator.setup import images_to_bytes
 import time
 import subprocess
 
+import bcrypt
+import sqlite3
+
+# INITIALISATION DE LA BASE DE DONNÉES SQL 
+def init_db():
+    # Se connecte au fichier database.db (le crée s'il n'existe pas)
+    database = sqlite3.connect("database.db")
+    cursor = database.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL
+        )
+    """)
+    database.commit()
+    database.close()
+
+# On lance l'initialisation au démarrage du fichier
+init_db()
+
 async def envoyer_erreur(ws: WebSocket, raison: str, to: str | None = None) -> None:
     """Envoie un message d'erreur structuré à un client WS."""
     payload = {"type": "error", "reason": raison}
@@ -49,6 +70,7 @@ aes_key_en_attente: dict[str, list] = {}
 class DemandeInscription(BaseModel):
     """Corps de requête de POST /register."""
     username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=8) 
 
 
 class ReponseInscription(BaseModel):
@@ -102,14 +124,54 @@ def inscrire(demande: DemandeInscription) -> ReponseInscription:
     - 409 Conflict : username déjà pris.
     - 422 Unprocessable Entity : validation Pydantic échouée (auto par FastAPI).
     """
-    if demande.username in utilisateurs:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Username '{demande.username}' déjà utilisé.",
+    # 1. Hachage du mot de passe
+    pwd_bytes = demande.password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(pwd_bytes, salt).decode('utf-8')
+
+    try:
+        # 2. Connexion à la base SQL
+        database = sqlite3.connect("database.db")
+        cursor = database.cursor()
+        
+        # 3. Requête SQL : Insérer une nouvelle ligne
+        # Note cybersec : On utilise les '?' pour se protéger des injections SQL !
+        cursor.execute(
+            "INSERT INTO users (username, password_hash) VALUES (?, ?)", 
+            (demande.username, hashed_password)
         )
+        database.commit()
+    except sqlite3.IntegrityError:
+        # L'erreur IntegrityError se déclenche car on a défini la colonne username comme "UNIQUE"
+        raise HTTPException(status_code=409, detail=f"Username '{demande.username}' déjà utilisé.")
+    finally:
+        database.close()
 
     utilisateurs.add(demande.username)
     return ReponseInscription(username=demande.username, status="registered")
+
+@app.post("/login")
+def login(demande: DemandeInscription):
+    """Vérifie si le mot de passe correspond à celui en base de données."""
+    database = sqlite3.connect("database.db")
+    cursor = database.cursor()
+    
+    # Requête SQL : Chercher le hash correspondant au username
+    cursor.execute("SELECT password_hash FROM users WHERE username = ?", (demande.username,))
+    result = cursor.fetchone() # Récupère la première ligne trouvée
+    database.close()
+
+    if not result:
+        raise HTTPException(status_code=401, detail="Utilisateur inconnu.")
+    
+    stored_hash = result[0]
+    
+    # Comparaison sécurisée du mot de passe tapé avec le hash de la BDD
+    if not bcrypt.checkpw(demande.password.encode('utf-8'), stored_hash.encode('utf-8')):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect.")
+    
+    utilisateurs.add(demande.username)
+    return {"status": "success", "message": "Connecté avec succès"}
 
 def capturer_photo_webcam() -> bytes:
     camera = cv2.VideoCapture(0)
