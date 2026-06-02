@@ -3,3 +3,5 @@ __pycache__/
 docs/message_chiffre.txt
 docs/message_dechiffre.txt
 docs/message.txt
+test_entropie.jpg
+database.db

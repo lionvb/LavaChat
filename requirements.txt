@@ -9,3 +9,5 @@ cryptography
 opencv-python
 flask
 flask-sock
+bcrypt
+pysqlite3
