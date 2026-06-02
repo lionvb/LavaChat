@@ -20,7 +20,7 @@ from src.encrypt_decrypt.key_generator import (
 )
 #Partage Victor : 10.211.31.253
 #Partage Louis  : 10.112.177.253
-URL_CLOUDFLARE = "avoiding-push-feature-ambient.trycloudflare.com"
+URL_CLOUDFLARE = "renewable-twelve-jeans-set.trycloudflare.com"
 BASE_HTTP = f"https://{URL_CLOUDFLARE}"
 BASE_WS = f"wss://{URL_CLOUDFLARE}" 
 
@@ -29,10 +29,10 @@ def set_username():
     username=input("\nQuelle est votre username ? : ")
     return username
 
-def enregistrer(username: str) -> None:
+def enregistrer(username: str,password: str) -> None:
     """Inscrit un username via POST /register. Idempotent (409 toléré)."""
     with httpx.Client() as client:
-        r = client.post(f"{BASE_HTTP}/register", json={"username": username})
+        r = client.post(f"{BASE_HTTP}/register", json={"username": username,"password":password})
         if r.status_code not in (201, 409):
             r.raise_for_status()
 
@@ -64,7 +64,7 @@ def recuperer_cle(destinataire: str) -> dict:
     data = r.json()
     return {"n": data["n"], "e": data["e"]}
 
-def initialiser_session(username: str) -> tuple[dict, dict]:
+def initialiser_session(username: str,password: str) -> tuple[dict, dict]:
     """
     Phase d'initialisation locale commune à tous les clients :
     inscription, obtention d'une seed, dérivation de la paire RSA,
@@ -73,7 +73,7 @@ def initialiser_session(username: str) -> tuple[dict, dict]:
     Retourne (cle_publique, cle_privee), chacune au format
     {"n": int, "e": int} ou {"n": int, "d": int}.
     """
-    enregistrer(username)
+    enregistrer(username,password)
     seed_bytes = bytes.fromhex(obtenir_seed())
     nb1, nb2, _ = seed_vers_grands_entiers(seed_bytes)
     cle_publique, cle_privee = generer_cles_rsa(nb1, nb2)
@@ -135,8 +135,11 @@ async def main_client() -> None:
     if not username:
         print("Username vide, abandon.")
         return
-
-    pub, priv = initialiser_session(username)
+    password = input("\nPassword (min 8 caracters): ").strip()
+    if not username:
+        print("Password vide, abandon.")
+        return
+    pub, priv = initialiser_session(username,password)
     print(f"\nSession initialisée pour {username}.")
 
     # Choix du rôle
