@@ -458,6 +458,8 @@
       <div class="card-title">Connexion</div>
       <label for="input-username">Identifiant</label>
       <input type="text" id="input-username" placeholder="alice" autocomplete="off" />
+      <label for="input-password" style="margin-top:16px;">Mot de passe</label>
+      <input type="password" id="input-password" placeholder="••••••••" autocomplete="off" />
       <button class="btn" id="btn-connect">Se connecter</button>
       <div class="error-msg" id="err-login"></div>
       <div class="steps" id="steps" style="display:none">
@@ -617,7 +619,7 @@ document.getElementById('btn-connect').addEventListener('click', async () => {
     const r = await fetch('/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: myName }),
+      body: JSON.stringify({ username: myName, password: document.getElementById('input-password').value }),
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'Erreur serveur.');
@@ -631,6 +633,9 @@ document.getElementById('btn-connect').addEventListener('click', async () => {
 });
 
 document.getElementById('input-username').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-connect').click();
+});
+document.getElementById('input-password').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('btn-connect').click();
 });
 
@@ -697,7 +702,7 @@ document.getElementById('btn-recv').addEventListener('click', async () => {
     const r = await fetch('/handshake/wait', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: myName }),
+      body: JSON.stringify({ username: myName, password: document.getElementById('input-password').value }),
     });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || 'Délai dépassé.');

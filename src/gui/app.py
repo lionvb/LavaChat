@@ -89,8 +89,15 @@ def index():
 @app.post("/connect")
 def connect():
     username = request.json.get("username", "").strip()
+    password = request.json.get("password", "").strip()
     if not username:
         return jsonify({"ok": False, "error": "Username vide."}), 400
+    if not password:
+        return jsonify({"ok": False, "error": "Mot de passe vide."}), 400
+
+    # Temporaire — à transmettre au backend auth plus tard
+    print(f"[AUTH] username='{username}' password='{password}'")
+
     try:
         _enregistrer(username)
         seed = _obtenir_seed()

@@ -20,7 +20,7 @@ from src.encrypt_decrypt.key_generator import (
 )
 #Partage Victor : 10.211.31.253
 #Partage Louis  : 10.112.177.253
-URL_CLOUDFLARE = "extension-continuity-informative-shore.trycloudflare.com"
+URL_CLOUDFLARE = "avoiding-push-feature-ambient.trycloudflare.com"
 BASE_HTTP = f"https://{URL_CLOUDFLARE}"
 BASE_WS = f"wss://{URL_CLOUDFLARE}" 
 
