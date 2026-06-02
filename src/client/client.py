@@ -20,7 +20,7 @@ from src.encrypt_decrypt.key_generator import (
 )
 #Partage Victor : 10.211.31.253
 #Partage Louis  : 10.112.177.253
-URL_CLOUDFLARE = "renewable-twelve-jeans-set.trycloudflare.com"
+URL_CLOUDFLARE = "strap-hunt-cons-korea.trycloudflare.com"
 BASE_HTTP = f"https://{URL_CLOUDFLARE}"
 BASE_WS = f"wss://{URL_CLOUDFLARE}" 
 
@@ -30,10 +30,19 @@ def set_username():
     return username
 
 def enregistrer(username: str,password: str) -> None:
-    """Inscrit un username via POST /register. Idempotent (409 toléré)."""
+    """Inscrit un nouvel utilisateur ou connecte un utilisateur existant."""
     with httpx.Client() as client:
+        # 1. On tente d'abord de l'inscrire
         r = client.post(f"{BASE_HTTP}/register", json={"username": username,"password":password})
-        if r.status_code not in (201, 409):
+        if r.status_code == 409:
+            # 2. Le compte existe déjà ! On bascule sur la route de connexion
+            r_login = client.post(f"{BASE_HTTP}/login", json={"username": username,"password":password})
+            if r_login.status_code == 401:
+                print("\n[ERREUR] Mot de passe incorrect pour cet utilisateur.")
+                exit(1)
+            r_login.raise_for_status()
+
+        elif r.status_code != 201:
             r.raise_for_status()
 
 
