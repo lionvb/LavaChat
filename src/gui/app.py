@@ -27,7 +27,7 @@ from src.encrypt_decrypt.key_generator import (
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-URL_CLOUDFLARE = "localhost:8000"
+URL_CLOUDFLARE = "orchestra-month-ind-relay.trycloudflare.com"
 BASE_HTTP = f"http://{URL_CLOUDFLARE}"
 BASE_WS   = f"ws://{URL_CLOUDFLARE}"
 
@@ -85,21 +85,27 @@ def _recuperer_cle(username: str) -> dict:
 def index():
     return render_template("index.html")
 
+def _authentifier(username: str, password: str, action: str) -> None:
+    endpoint = "/register" if action == "register" else "/login"
+    with httpx.Client() as c:
+        r = c.post(f"{BASE_HTTP}{endpoint}", json={"username": username, "password": password})
+        if r.status_code not in (200, 201, 409):
+            # Si c'est 409 (conflit) lors d'un register, on peut le tolérer 
+            # ou forcer l'utilisateur à se login s'il existe déjà.
+            r.raise_for_status()
 
 @app.post("/connect")
 def connect():
     username = request.json.get("username", "").strip()
     password = request.json.get("password", "").strip()
+    action = request.json.get("action", "register") # Register par défault à voir pour un bouton de switch login/register
     if not username:
         return jsonify({"ok": False, "error": "Username vide."}), 400
     if not password:
         return jsonify({"ok": False, "error": "Mot de passe vide."}), 400
 
-    # Temporaire — à transmettre au backend auth plus tard
-    print(f"[AUTH] username='{username}' password='{password}'")
-
     try:
-        _enregistrer(username)
+        _authentifier(username, password, action)
         seed = _obtenir_seed()
         nb1, nb2, _ = seed_vers_grands_entiers(seed)
         pub, priv = generer_cles_rsa(nb1, nb2)
@@ -110,6 +116,8 @@ def connect():
         sess["cle_priv"] = priv
 
         return jsonify({"ok": True})
+    except httpx.HTTPStatusError as e:
+        return jsonify({"ok": False, "error": f"Erreur d'authentification (Code {e.response.status_code})"}), 401
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
