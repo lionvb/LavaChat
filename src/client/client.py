@@ -145,27 +145,32 @@ async def main_client() -> None:
         print("Username vide, abandon.")
         return
     password = input("\nPassword (min 8 caracters): ").strip()
-    if not username:
+    if not password:
         print("Password vide, abandon.")
         return
-    pub, priv = initialiser_session(username,password)
+    pub, priv = initialiser_session(username, password)
     print(f"\nSession initialisée pour {username}.")
 
-    # Choix du rôle
-    reponse = input("\nÊtes-vous l'initiateur de la session ? (o/n) : ").strip().lower()
-    est_initiateur = reponse.startswith("o")
+    # Boucle principale — on revient ici après chaque session de chat
+    while True:
+        print("\n" + "─" * 40)
+        print("  Nouvelle session")
+        print("─" * 40)
+        reponse = input("Êtes-vous l'initiateur de la session ? (o/n) ou 'quitter' pour sortir : ").strip().lower()
 
-    destinataire = None
-    cle_aes = None
-    if est_initiateur:
-        destinataire = input("Username du destinataire : ").strip()
-        cle_aes = generer_cle_aes_session()
-        print(f"\nClé AES de session générée. Aperçu : {cle_aes[:8].hex()}... (32 octets)")
+        if reponse in ("quitter", "q"):
+            print("Au revoir.")
+            break
 
-    # Connexion WS et handshake
-    url = f"{BASE_WS}/chat?user={username}"
-    print(f"\nConnexion à {url} ...")
-    try:
+        est_initiateur = reponse.startswith("o")
+
+        destinataire = None
+        cle_aes = None
+        if est_initiateur:
+            destinataire = input("Username du destinataire : ").strip()
+            cle_aes = generer_cle_aes_session()
+            print(f"\nClé AES de session générée. Aperçu : {cle_aes[:8].hex()}... (32 octets)")
+
         url = f"{BASE_WS}/chat?user={username}"
         print(f"\nConnexion à {url} ...")
         try:
@@ -181,15 +186,15 @@ async def main_client() -> None:
                         f"\nAperçu : {cle_aes[:8].hex()}... ({len(cle_aes)} octets)"
                     )
 
-                print(f"\nChat en cours avec {destinataire}. Tape ton message + Entrée. Ctrl+C pour quitter.\n")
+                print(f"\nChat en cours avec {destinataire}. Tape '/quitter' pour revenir au menu.\n")
                 await asyncio.gather(
                     boucle_envoyer(ws, cle_aes, destinataire),
                     boucle_recevoir(ws, cle_aes),
                 )
         except websockets.exceptions.ConnectionClosed as e:
-            print(f"\nFermée — code={e.code} reason={e.reason!r}")
-    except websockets.exceptions.ConnectionClosed as e:
-        print(f"\nFermée — code={e.code} reason={e.reason!r}")
+            print(f"\nSession fermée — code={e.code} reason={e.reason!r}")
+
+        print("\nSession terminée.")
 
 def traiter_aes_key(message: dict, cle_privee: dict) -> bytes:
     """
@@ -225,7 +230,7 @@ async def attendre_handshake_aes(ws, cle_privee: dict) -> tuple[bytes, str]:
 
 
 async def boucle_envoyer(ws, cle_aes: bytes, destinataire: str) -> None:
-    """Lit le clavier, chiffre AES-GCM, envoie sur la WS."""
+    """Lit le clavier, chiffre AES-GCM, envoie sur la WS. '/quitter' ferme la session."""
     while True:
         try:
             texte = await asyncio.to_thread(input, "")
@@ -233,6 +238,11 @@ async def boucle_envoyer(ws, cle_aes: bytes, destinataire: str) -> None:
             return
         if not texte:
             continue
+
+        if texte.strip().lower() == "/quitter":
+            print("\nFermeture de la session en cours...")
+            await ws.close()
+            return
 
         nonce, chiffre = chiffrement_AES(cle_aes, texte)
         # AES-GCM : les 16 derniers octets de la sortie sont le tag d'authentification.
