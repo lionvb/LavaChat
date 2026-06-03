@@ -335,7 +335,7 @@ async def chat(websocket: WebSocket):
 
             # Validation : type connu
             type_msg = message.get("type")
-            if type_msg not in ("aes_key", "message"):
+            if type_msg not in ("aes_key", "message", "session_left"):
                 await envoyer_erreur(websocket, "type_inconnu")
                 continue
 

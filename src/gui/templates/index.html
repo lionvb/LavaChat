@@ -441,6 +441,22 @@
   }
   .msg { cursor: pointer; }
   .msg:hover .msg-bubble { opacity: .85; transition: opacity .15s; }
+
+  /* ── Bouton nouvelle session (header chat) ── */
+  .btn-back {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 2px;
+    cursor: pointer;
+    letter-spacing: .04em;
+    transition: border-color .2s, color .2s;
+    flex-shrink: 0;
+  }
+  .btn-back:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -537,6 +553,7 @@
       <div class="chat-peer">
         <span>avec </span><span id="peer-name">—</span>
       </div>
+      <button class="btn-back" id="btn-nouvelle-session" onclick="goBackToHandshake()">← nouvelle session</button>
       <div class="badge-encrypted">
         <div class="badge-dot"></div>
         AES-GCM chiffré
@@ -641,7 +658,7 @@ document.getElementById('input-password').addEventListener('keydown', e => {
 
 // ── WebSocket bridge ──────────────────────────────────────────────────────────
 function openWebSocket() {
-  ws = new WebSocket(`ws://localhost:5000/ws?user=${encodeURIComponent(myName)}`);
+  ws = new WebSocket(`{{ ws_url }}/ws?user=${encodeURIComponent(myName)}`);
 
   ws.onopen = () => {
     showScreen('screen-handshake');
@@ -652,8 +669,18 @@ function openWebSocket() {
       const msg = JSON.parse(e.data);
       if (msg.type === 'message') {
         appendMessage(msg.from, msg, 'recv');
+      } else if (msg.type === 'session_renewed') {
+        peerName = msg.from;
+        document.getElementById('peer-name').textContent = peerName;
+        appendSystem(`nouvelle clé de session reçue de ${msg.from} — chiffrement mis à jour`);
+      } else if (msg.type === 'session_left') {
+        appendSystem(`⚠ ${msg.from || 'votre correspondant'} a quitté la session — les messages ne seront pas délivrés`);
       } else if (msg.type === 'error') {
-        appendSystem(`erreur : ${msg.reason}`);
+        if (msg.reason === 'recipient_offline') {
+          appendSystem(`⚠ ${msg.to || 'votre correspondant'} est hors ligne — message non délivré`);
+        } else {
+          appendSystem(`erreur : ${msg.reason}`);
+        }
       }
     } catch (_) {}
   };
@@ -775,6 +802,8 @@ async function sendMessage() {
       appendMessage(myName, { _plain: text, nonce: data.nonce, ciphertext: data.ciphertext, tag: data.tag }, 'sent');
       input.value = '';
       input.style.height = 'auto';
+    } else if (data.error === 'peer_left') {
+      appendSystem(`⚠ ${peerName || 'votre correspondant'} a quitté la session — message non envoyé`);
     }
   } catch (e) {
     appendSystem(`erreur envoi : ${e.message}`);
@@ -804,6 +833,39 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ── Nouvelle session (retour au handshake) ────────────────────────────────────
+async function goBackToHandshake() {
+  try {
+    await fetch('/session/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: myName }),
+    });
+  } catch (_) {}
+
+  // Reset état frontend
+  peerName = '';
+  role = null;
+
+  // Reset écran chat
+  document.getElementById('peer-name').textContent = '—';
+  document.getElementById('chat-messages').innerHTML =
+    '<div class="msg-system">session chiffrée établie</div>';
+
+  // Reset écran handshake
+  document.getElementById('role-init').classList.remove('selected');
+  document.getElementById('role-recv').classList.remove('selected');
+  document.getElementById('panel-init').style.display = 'none';
+  document.getElementById('panel-recv').style.display = 'none';
+  document.getElementById('input-dest').value = '';
+  document.getElementById('btn-init').disabled = false;
+  document.getElementById('btn-recv').disabled = false;
+  document.getElementById('waiting-recv').style.display = 'none';
+  clearError('err-handshake');
+
+  showScreen('screen-handshake');
 }
 
 // ── Cipher modal ─────────────────────────────────────────────────────────────

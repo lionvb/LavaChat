@@ -28,11 +28,12 @@ from src.encrypt_decrypt.key_generator import (
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 URL_CLOUDFLARE = "especially-gulf-improving-brussels.trycloudflare.com"
-BASE_HTTP = f"http://{URL_CLOUDFLARE}"
-BASE_WS   = f"ws://{URL_CLOUDFLARE}"
+BASE_HTTP = f"https://{URL_CLOUDFLARE}"
+BASE_WS   = f"wss://{URL_CLOUDFLARE}"
 
 app  = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "templates"))
 sock = Sock(app)
+
 
 # ── Sessions multi-utilisateurs ───────────────────────────────────────────────
 
@@ -83,15 +84,17 @@ def _recuperer_cle(username: str) -> dict:
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", ws_url="ws://localhost:5000")
 
 def _authentifier(username: str, password: str, action: str) -> None:
     endpoint = "/register" if action == "register" else "/login"
     with httpx.Client() as c:
         r = c.post(f"{BASE_HTTP}{endpoint}", json={"username": username, "password": password})
-        if r.status_code not in (200, 201, 409):
-            # Si c'est 409 (conflit) lors d'un register, on peut le tolérer 
-            # ou forcer l'utilisateur à se login s'il existe déjà.
+        if r.status_code == 409:
+            # Compte existant : vérifier le mot de passe via /login
+            r_login = c.post(f"{BASE_HTTP}/login", json={"username": username, "password": password})
+            r_login.raise_for_status()
+        elif r.status_code not in (200, 201):
             r.raise_for_status()
 
 @app.post("/connect")
@@ -196,6 +199,8 @@ def send_message():
         return jsonify({"ok": False, "error": "Champs manquants."}), 400
     try:
         sess = get_session(username)
+        if not sess.get("cle_aes"):
+            return jsonify({"ok": False, "error": "peer_left"}), 409
         nonce, chiffre = chiffrement_AES(sess["cle_aes"], text)
         ciphertext = chiffre[:-16]
         tag        = chiffre[-16:]
@@ -256,8 +261,34 @@ def ws_bridge(browser_ws):
 
                     type_msg = msg.get("type")
 
+                    if type_msg == "session_left":
+                        sess["cle_aes"]      = None
+                        sess["destinataire"] = None
+                        await inbox.put(json.dumps({
+                            "type": "session_left",
+                            "from": msg.get("from"),
+                        }))
+                        continue
+
                     if type_msg == "aes_key":
-                        await sess["inbox_aes"].put(raw)
+                        if sess.get("cle_aes") is not None:
+                            # Déjà en session : mettre à jour la clé sans passer par handshake/wait
+                            try:
+                                aes_chiffree = base64.b64decode(msg["payload"])
+                                nouvelle_cle = dechiffrer_RSA(aes_chiffree, sess["cle_priv"])
+                                if isinstance(nouvelle_cle, str):
+                                    nouvelle_cle = nouvelle_cle.encode("utf-8")
+                                sess["cle_aes"]      = nouvelle_cle
+                                sess["destinataire"] = msg.get("from")
+                                await inbox.put(json.dumps({
+                                    "type": "session_renewed",
+                                    "from": msg.get("from"),
+                                }))
+                            except Exception:
+                                pass
+                        else:
+                            # Pas encore en session : flux handshake normal
+                            await sess["inbox_aes"].put(raw)
                     else:
                         if type_msg == "message" and sess.get("cle_aes"):
                             try:
@@ -302,9 +333,44 @@ def ws_bridge(browser_ws):
             break
 
 
+@app.post("/session/reset")
+def session_reset():
+    username = request.json.get("username", "").strip()
+    if not username or username not in sessions:
+        return jsonify({"ok": False, "error": "Session inconnue."}), 400
+    sess = sessions[username]
+
+    # Prévenir l'interlocuteur avant de reset
+    destinataire = sess.get("destinataire")
+    if destinataire and sess.get("ws_cloudflare") and sess.get("loop"):
+        try:
+            asyncio.run_coroutine_threadsafe(
+                sess["ws_cloudflare"].send(json.dumps({
+                    "type": "session_left",
+                    "to":   destinataire,
+                })),
+                sess["loop"],
+            ).result(timeout=3)
+        except Exception:
+            pass
+
+    sess["cle_aes"]      = None
+    sess["destinataire"] = None
+    if sess.get("inbox_aes"):
+        while not sess["inbox_aes"].empty():
+            try:
+                sess["inbox_aes"].get_nowait()
+            except Exception:
+                break
+    return jsonify({"ok": True})
+
+
 # ── Lancement ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import webbrowser
-    webbrowser.open("http://localhost:5000")
-    app.run(port=5000, debug=False)
+    PORT = 5000
+    print(f"Serveur backend : {BASE_HTTP}")
+    print(f"Interface accessible sur : http://localhost:{PORT}")
+    webbrowser.open(f"http://localhost:{PORT}")
+    app.run(host="0.0.0.0", port=PORT, debug=False)
