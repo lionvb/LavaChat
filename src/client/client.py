@@ -20,7 +20,7 @@ from src.encrypt_decrypt.key_generator import (
 )
 #Partage Victor : 10.211.31.253
 #Partage Louis  : 10.112.177.253
-URL_CLOUDFLARE = "strap-hunt-cons-korea.trycloudflare.com"
+URL_CLOUDFLARE = "especially-gulf-improving-brussels.trycloudflare.com"
 BASE_HTTP = f"https://{URL_CLOUDFLARE}"
 BASE_WS = f"wss://{URL_CLOUDFLARE}" 
 

@@ -27,7 +27,7 @@ from src.encrypt_decrypt.key_generator import (
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-URL_CLOUDFLARE = "orchestra-month-ind-relay.trycloudflare.com"
+URL_CLOUDFLARE = "especially-gulf-improving-brussels.trycloudflare.com"
 BASE_HTTP = f"http://{URL_CLOUDFLARE}"
 BASE_WS   = f"ws://{URL_CLOUDFLARE}"
 
