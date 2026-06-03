@@ -7,6 +7,7 @@ import base64
 import json
 import threading
 import os
+import sqlite3
 
 from flask import Flask, render_template, request, jsonify
 from flask_sock import Sock
@@ -53,6 +54,34 @@ def get_session(username: str) -> dict:
             "inbox_chat":    None,
         }
     return sessions[username]
+
+# INITIALISATION DE LA BASE DE DONNÉES SQL DES CONTACTS
+def init_db(username:str):
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            last_connection TEXT NOT NULL
+        )
+    """)
+    contacts_db.commit()
+    contacts_db.close()
+
+def maj_db(username:str,destinataire:str ,last_connection:str="date"):
+    try:
+        contacts_db = sqlite3.connect(f"{username}_contacts.db")
+        cursor = contacts_db.cursor()
+        cursor.execute(
+            "INSERT INTO contacts (username, last_connection) VALUES (?, ?)", 
+            (destinataire, last_connection)
+        )
+        contacts_db.commit()
+    except sqlite3.IntegrityError:
+        print("Problème dans la mise à jour de la liste des contacts")
+    finally:
+        contacts_db.close()
 
 # ── Helpers HTTP vers serveur ─────────────────────────────────────────────────
 
@@ -109,6 +138,7 @@ def connect():
 
     try:
         _authentifier(username, password, action)
+        init_db(username)
         seed = _obtenir_seed()
         nb1, nb2, _ = seed_vers_grands_entiers(seed)
         pub, priv = generer_cles_rsa(nb1, nb2)
@@ -153,6 +183,7 @@ def handshake_init():
 
         sess["cle_aes"]      = cle_aes
         sess["destinataire"] = destinataire
+        maj_db(username=username,destinataire=destinataire)
 
         return jsonify({"ok": True})
     except Exception as exc:
@@ -172,6 +203,7 @@ def handshake_wait():
         cle_aes, expediteur = future.result(timeout=60)
         sess["cle_aes"]      = cle_aes
         sess["destinataire"] = expediteur
+        maj_db(username=username,destinataire=expediteur)
         return jsonify({"ok": True, "destinataire": expediteur})
     except TimeoutError:
         return jsonify({"ok": False, "error": "Délai dépassé (60 s)."}), 408
