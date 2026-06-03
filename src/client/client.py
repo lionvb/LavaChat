@@ -5,6 +5,8 @@ import base64
 import httpx
 import websockets
 
+import sqlite3
+
 """python -m src.client.client"""
 
 from src.encrypt_decrypt.encrypt_decrypt import (
@@ -24,6 +26,34 @@ URL_CLOUDFLARE = "especially-gulf-improving-brussels.trycloudflare.com"
 BASE_HTTP = f"https://{URL_CLOUDFLARE}"
 BASE_WS = f"wss://{URL_CLOUDFLARE}" 
 
+# INITIALISATION DE LA BASE DE DONNÉES SQL DES CONTACTS
+def init_db(username:str):
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            last_connection TEXT NOT NULL
+        )
+    """)
+    contacts_db.commit()
+    contacts_db.close()
+
+def maj_db(username:str,destinataire:str ,last_connection:str="date"):
+    try:
+        contacts_db = sqlite3.connect(f"{username}_contacts.db")
+        cursor = contacts_db.cursor()
+        cursor.execute(
+            "INSERT INTO contacts (username, last_connection) VALUES (?, ?)", 
+            (destinataire, last_connection)
+        )
+        contacts_db.commit()
+    except sqlite3.IntegrityError:
+        print("Problème dans la mise à jour de la liste des contacts")
+        print(username,destinataire)
+    finally:
+        contacts_db.close()
 
 def set_username():
     username=input("\nQuelle est votre username ? : ")
@@ -44,6 +74,7 @@ def enregistrer(username: str,password: str) -> None:
 
         elif r.status_code != 201:
             r.raise_for_status()
+        init_db(username)
 
 
 def obtenir_seed() -> str:
@@ -179,8 +210,10 @@ async def main_client() -> None:
 
                 if est_initiateur:
                     await envoyer_cle_aes(ws, destinataire, cle_aes)
+                    maj_db(username,destinataire)
                 else:
                     cle_aes, destinataire = await attendre_handshake_aes(ws, priv)
+                    maj_db(username,destinataire)
                     print(
                         f"Clé AES reçue de {destinataire}."
                         f"\nAperçu : {cle_aes[:8].hex()}... ({len(cle_aes)} octets)"
