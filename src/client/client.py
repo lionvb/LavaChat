@@ -51,9 +51,16 @@ def maj_db(username:str,destinataire:str ,last_connection:str="date"):
         contacts_db.commit()
     except sqlite3.IntegrityError:
         print("Problème dans la mise à jour de la liste des contacts")
-        print(username,destinataire)
     finally:
         contacts_db.close()
+
+def get_contacts_list(username:str):
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute("SELECT username FROM contacts order by last_connection desc")
+    contacts_list=[ligne[0] for ligne in cursor.fetchall()]
+    contacts_db.close()
+    return contacts_list
 
 def set_username():
     username=input("\nQuelle est votre username ? : ")
