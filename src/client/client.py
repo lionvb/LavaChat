@@ -6,7 +6,7 @@ import httpx
 import websockets
 
 import sqlite3
-
+from datetime import datetime
 """python -m src.client.client"""
 
 from src.encrypt_decrypt.encrypt_decrypt import (
@@ -22,7 +22,7 @@ from src.encrypt_decrypt.key_generator import (
 )
 #Partage Victor : 10.211.31.253
 #Partage Louis  : 10.112.177.253
-URL_CLOUDFLARE = "especially-gulf-improving-brussels.trycloudflare.com"
+URL_CLOUDFLARE = "fitness-gabriel-currency-adventure.trycloudflare.com"
 BASE_HTTP = f"https://{URL_CLOUDFLARE}"
 BASE_WS = f"wss://{URL_CLOUDFLARE}" 
 
@@ -217,10 +217,10 @@ async def main_client() -> None:
 
                 if est_initiateur:
                     await envoyer_cle_aes(ws, destinataire, cle_aes)
-                    maj_db(username,destinataire)
+                    maj_db(username,destinataire,datetime.now())
                 else:
                     cle_aes, destinataire = await attendre_handshake_aes(ws, priv)
-                    maj_db(username,destinataire)
+                    maj_db(username,destinataire,datetime.now())
                     print(
                         f"Clé AES reçue de {destinataire}."
                         f"\nAperçu : {cle_aes[:8].hex()}... ({len(cle_aes)} octets)"

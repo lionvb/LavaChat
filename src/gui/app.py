@@ -8,7 +8,7 @@ import json
 import threading
 import os
 import sqlite3
-
+from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from flask_sock import Sock
 import httpx
@@ -28,7 +28,7 @@ from src.encrypt_decrypt.key_generator import (
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-URL_CLOUDFLARE = "especially-gulf-improving-brussels.trycloudflare.com"
+URL_CLOUDFLARE = "fitness-gabriel-currency-adventure.trycloudflare.com"
 BASE_HTTP = f"https://{URL_CLOUDFLARE}"
 BASE_WS   = f"wss://{URL_CLOUDFLARE}"
 
@@ -191,7 +191,7 @@ def handshake_init():
 
         sess["cle_aes"]      = cle_aes
         sess["destinataire"] = destinataire
-        maj_db(username=username,destinataire=destinataire)
+        maj_db(username=username,destinataire=destinataire,last_connection=datetime.now())
 
         return jsonify({"ok": True})
     except Exception as exc:
@@ -211,7 +211,7 @@ def handshake_wait():
         cle_aes, expediteur = future.result(timeout=60)
         sess["cle_aes"]      = cle_aes
         sess["destinataire"] = expediteur
-        maj_db(username=username,destinataire=expediteur)
+        maj_db(username=username,destinataire=expediteur,last_connection=datetime.now())
         return jsonify({"ok": True, "destinataire": expediteur})
     except TimeoutError:
         return jsonify({"ok": False, "error": "Délai dépassé (60 s)."}), 408
