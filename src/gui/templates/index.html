@@ -207,6 +207,84 @@
   }
   .role-card.selected .role-label { color: var(--accent); }
 
+  /* ── Sub-mode tabs (initiateur) ── */
+  .submode-tabs {
+    display: flex; gap: 8px; margin-bottom: 16px;
+  }
+  .submode-tab {
+    flex: 1;
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color .2s, color .2s;
+  }
+  .submode-tab:hover     { border-color: var(--muted); color: var(--text); }
+  .submode-tab.active    { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Contacts list ── */
+  .contacts-list {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 180px; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .contact-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .contact-item:hover { border-color: var(--accent); }
+  .contact-item.selected { border-color: var(--accent); background: rgba(255,92,58,.05); }
+  .contact-name {
+    font-family: var(--mono); font-size: 13px; color: var(--text);
+  }
+  .contact-date {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+  }
+  .contacts-empty {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    text-align: center; padding: 20px 0;
+  }
+
+  /* ── Bannière connexion entrante ── */
+  #incoming-notif {
+    margin-top: 20px;
+  }
+  .incoming-banner {
+    padding: 16px;
+    background: rgba(61,220,132,.05);
+    border: 1px solid rgba(61,220,132,.3);
+    border-radius: 3px;
+    animation: msg-in .25s ease;
+  }
+  .incoming-header {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--green); letter-spacing: .08em; text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .incoming-dot-anim {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    animation: dot-pulse .8s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .incoming-from {
+    font-family: var(--mono); font-size: 18px; font-weight: 500;
+    color: var(--text); margin-bottom: 4px;
+  }
+
   /* ── Waiting indicator ── */
   .waiting {
     display: flex; align-items: center; gap: 10px;
@@ -506,38 +584,38 @@
       <div class="logo-text">Lava<span>Chat</span></div>
     </div>
     <div class="card">
-      <div class="card-title">Établir une session</div>
-      <label>Votre rôle</label>
-      <div class="role-grid">
-        <div class="role-card" id="role-init" onclick="selectRole('init')">
-          <div class="role-icon">⚡</div>
-          <div class="role-label">Initiateur</div>
-        </div>
-        <div class="role-card" id="role-recv" onclick="selectRole('recv')">
-          <div class="role-icon">📡</div>
-          <div class="role-label">Récepteur</div>
-        </div>
+      <div class="card-title">Nouvelle session</div>
+
+      <div class="submode-tabs">
+        <div class="submode-tab active" id="tab-new" onclick="selectSubmode('new')">Nouveau contact</div>
+        <div class="submode-tab" id="tab-history" onclick="selectSubmode('history')">Contacts récents</div>
       </div>
 
-      <!-- Initiateur -->
-      <div id="panel-init" style="display:none; margin-top:20px;">
+      <div id="subpanel-new">
         <label for="input-dest">Username du destinataire</label>
         <input type="text" id="input-dest" placeholder="bob" autocomplete="off" />
-        <button class="btn" id="btn-init">Envoyer la clé de session</button>
       </div>
 
-      <!-- Récepteur -->
-      <div id="panel-recv" style="display:none; margin-top:20px;">
-        <button class="btn" id="btn-recv">Attendre la connexion</button>
-        <div class="waiting" id="waiting-recv" style="display:none">
-          <span>En attente d'un initiateur</span>
-          <div class="waiting-dots">
-            <span>.</span><span>.</span><span>.</span>
-          </div>
+      <div id="subpanel-history" style="display:none;">
+        <div class="contacts-list" id="contacts-list">
+          <div class="contacts-empty">Chargement…</div>
         </div>
       </div>
 
+      <button class="btn" id="btn-init">Se connecter</button>
       <div class="error-msg" id="err-handshake"></div>
+
+      <!-- Demande entrante -->
+      <div id="incoming-notif" style="display:none;">
+        <div class="incoming-banner">
+          <div class="incoming-header">
+            <div class="incoming-dot-anim"></div>
+            <span>Demande de connexion entrante</span>
+          </div>
+          <div class="incoming-from" id="incoming-from">?</div>
+          <button class="btn" id="btn-accept">Accepter</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -580,7 +658,7 @@
 let ws        = null;
 let myName    = '';
 let peerName  = '';
-let role      = null;   // 'init' | 'recv'
+let pendingIncoming = null;  // username de la demande entrante en attente
 
 // ── Screen transitions ────────────────────────────────────────────────────────
 function showScreen(id) {
@@ -662,6 +740,7 @@ function openWebSocket() {
 
   ws.onopen = () => {
     showScreen('screen-handshake');
+    loadContacts();
   };
 
   ws.onmessage = (e) => {
@@ -670,9 +749,18 @@ function openWebSocket() {
       if (msg.type === 'message') {
         appendMessage(msg.from, msg, 'recv');
       } else if (msg.type === 'session_renewed') {
-        peerName = msg.from;
-        document.getElementById('peer-name').textContent = peerName;
-        appendSystem(`nouvelle clé de session reçue de ${msg.from} — chiffrement mis à jour`);
+        const onHandshake = document.getElementById('screen-handshake').classList.contains('active');
+        if (onHandshake) {
+          // Demande entrante pendant qu'on est dans le menu
+          pendingIncoming = msg.from;
+          document.getElementById('incoming-from').textContent = msg.from;
+          document.getElementById('incoming-notif').style.display = 'block';
+        } else {
+          // Renouvellement pendant une session active (l'autre a quitté et revient)
+          peerName = msg.from;
+          document.getElementById('peer-name').textContent = peerName;
+          appendSystem(`nouvelle clé de session reçue de ${msg.from} — chiffrement mis à jour`);
+        }
       } else if (msg.type === 'session_left') {
         appendSystem(`⚠ ${msg.from || 'votre correspondant'} a quitté la session — les messages ne seront pas délivrés`);
       } else if (msg.type === 'error') {
@@ -691,18 +779,60 @@ function openWebSocket() {
 }
 
 // ── Écran 2 — Handshake ───────────────────────────────────────────────────────
-function selectRole(r) {
-  role = r;
-  document.getElementById('role-init').classList.toggle('selected', r === 'init');
-  document.getElementById('role-recv').classList.toggle('selected', r === 'recv');
-  document.getElementById('panel-init').style.display = r === 'init' ? 'block' : 'none';
-  document.getElementById('panel-recv').style.display = r === 'recv' ? 'block' : 'none';
+let selectedContact = null;
+let currentSubmode  = 'new';
+
+function selectSubmode(mode) {
+  currentSubmode = mode;
+  document.getElementById('tab-new').classList.toggle('active', mode === 'new');
+  document.getElementById('tab-history').classList.toggle('active', mode === 'history');
+  document.getElementById('subpanel-new').style.display     = mode === 'new'     ? 'block' : 'none';
+  document.getElementById('subpanel-history').style.display = mode === 'history' ? 'block' : 'none';
+  selectedContact = null;
+}
+
+async function loadContacts() {
+  const list = document.getElementById('contacts-list');
+  list.innerHTML = '<div class="contacts-empty">Chargement…</div>';
+  try {
+    const r    = await fetch(`/contacts/${encodeURIComponent(myName)}`);
+    const data = await r.json();
+    if (!data.ok || !data.contacts.length) {
+      list.innerHTML = '<div class="contacts-empty">Aucun contact enregistré.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    data.contacts.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'contact-item';
+      item.dataset.username = c.username;
+      const date = c.last_connection
+        ? new Date(c.last_connection).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
+        : '—';
+      item.innerHTML = `<span class="contact-name">${escapeHtml(c.username)}</span><span class="contact-date">${date}</span>`;
+      item.addEventListener('click', () => {
+        list.querySelectorAll('.contact-item').forEach(el => el.classList.remove('selected'));
+        item.classList.add('selected');
+        selectedContact = c.username;
+      });
+      list.appendChild(item);
+    });
+  } catch (e) {
+    list.innerHTML = '<div class="contacts-empty">Erreur de chargement.</div>';
+  }
 }
 
 document.getElementById('btn-init').addEventListener('click', async () => {
   clearError('err-handshake');
-  const dest = document.getElementById('input-dest').value.trim();
-  if (!dest) { showError('err-handshake', 'Veuillez saisir le destinataire.'); return; }
+
+  let dest;
+  if (currentSubmode === 'new') {
+    dest = document.getElementById('input-dest').value.trim();
+    if (!dest) { showError('err-handshake', 'Veuillez saisir le destinataire.'); return; }
+  } else {
+    if (!selectedContact) { showError('err-handshake', 'Veuillez sélectionner un contact.'); return; }
+    dest = selectedContact;
+  }
 
   document.getElementById('btn-init').disabled = true;
   try {
@@ -721,25 +851,11 @@ document.getElementById('btn-init').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('btn-recv').addEventListener('click', async () => {
-  clearError('err-handshake');
-  document.getElementById('btn-recv').disabled = true;
-  document.getElementById('waiting-recv').style.display = 'flex';
-  try {
-    const r = await fetch('/handshake/wait', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: myName, password: document.getElementById('input-password').value }),
-    });
-    const data = await r.json();
-    if (!data.ok) throw new Error(data.error || 'Délai dépassé.');
-    peerName = data.destinataire;
-    enterChat();
-  } catch (e) {
-    showError('err-handshake', e.message);
-    document.getElementById('btn-recv').disabled = false;
-    document.getElementById('waiting-recv').style.display = 'none';
-  }
+document.getElementById('btn-accept').addEventListener('click', () => {
+  if (!pendingIncoming) return;
+  peerName = pendingIncoming;
+  pendingIncoming = null;
+  enterChat();
 });
 
 // ── Écran 3 — Chat ────────────────────────────────────────────────────────────
@@ -846,8 +962,8 @@ async function goBackToHandshake() {
   } catch (_) {}
 
   // Reset état frontend
-  peerName = '';
-  role = null;
+  peerName        = '';
+  pendingIncoming = null;
 
   // Reset écran chat
   document.getElementById('peer-name').textContent = '—';
@@ -855,15 +971,13 @@ async function goBackToHandshake() {
     '<div class="msg-system">session chiffrée établie</div>';
 
   // Reset écran handshake
-  document.getElementById('role-init').classList.remove('selected');
-  document.getElementById('role-recv').classList.remove('selected');
-  document.getElementById('panel-init').style.display = 'none';
-  document.getElementById('panel-recv').style.display = 'none';
   document.getElementById('input-dest').value = '';
   document.getElementById('btn-init').disabled = false;
-  document.getElementById('btn-recv').disabled = false;
-  document.getElementById('waiting-recv').style.display = 'none';
+  document.getElementById('incoming-notif').style.display = 'none';
   clearError('err-handshake');
+  selectedContact = null;
+  selectSubmode('new');
+  loadContacts();
 
   showScreen('screen-handshake');
 }

@@ -40,27 +40,24 @@ def init_db(username:str):
     contacts_db.commit()
     contacts_db.close()
 
-def maj_db(username:str,destinataire:str ,last_connection:str="date"):
-    try:
-        contacts_db = sqlite3.connect(f"{username}_contacts.db")
-        cursor = contacts_db.cursor()
-        cursor.execute(
-            "INSERT INTO contacts (username, last_connection) VALUES (?, ?)", 
-            (destinataire, last_connection)
-        )
-        contacts_db.commit()
-    except sqlite3.IntegrityError:
-        print("Problème dans la mise à jour de la liste des contacts")
-    finally:
-        contacts_db.close()
-
-def get_contacts_list(username:str):
+def maj_db(username: str, destinataire: str, last_connection: str = "date"):
     contacts_db = sqlite3.connect(f"{username}_contacts.db")
     cursor = contacts_db.cursor()
-    cursor.execute("SELECT username FROM contacts order by last_connection desc")
-    contacts_list=[ligne[0] for ligne in cursor.fetchall()]
+    cursor.execute(
+        "INSERT OR REPLACE INTO contacts (username, last_connection) VALUES (?, ?)",
+        (destinataire, last_connection)
+    )
+    contacts_db.commit()
     contacts_db.close()
-    return contacts_list
+
+def get_contacts_list(username: str) -> list[tuple[str, str]]:
+    """Retourne [(username, last_connection), ...] triés par date décroissante."""
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute("SELECT username, last_connection FROM contacts ORDER BY last_connection DESC")
+    contacts = cursor.fetchall()
+    contacts_db.close()
+    return contacts
 
 def set_username():
     username=input("\nQuelle est votre username ? : ")
@@ -176,13 +173,53 @@ async def envoyer_cle_aes(ws, destinataire: str, cle_aes: bytes) -> None:
     await ws.send(json.dumps(message))
     print(f"Clé AES envoyée (chiffrée RSA) à {destinataire}.")
 
+def _choisir_destinataire(username: str) -> str | None:
+    """
+    Affiche le menu de choix du destinataire :
+      1. Nouvelle connexion (saisir un username)
+      2. Rouvrir une connexion existante (liste des contacts)
+    Retourne le username choisi, ou None pour annuler.
+    """
+    contacts = get_contacts_list(username)
+
+    print("\n" + "─" * 40)
+    print("  Établir une session")
+    print("─" * 40)
+    print("  1. Nouvelle connexion")
+    if contacts:
+        print("  2. Rouvrir une connexion")
+    print("  q. Annuler")
+
+    choix = input("\nChoix : ").strip().lower()
+
+    if choix == "1":
+        dest = input("Username du destinataire : ").strip()
+        return dest if dest else None
+
+    if choix == "2" and contacts:
+        print("\nContacts récents :")
+        for i, (c_user, c_date) in enumerate(contacts, 1):
+            print(f"  {i}. {c_user}  (dernière connexion : {c_date})")
+        selection = input("\nNuméro du contact : ").strip()
+        try:
+            idx = int(selection) - 1
+            if 0 <= idx < len(contacts):
+                return contacts[idx][0]
+        except ValueError:
+            pass
+        print("Sélection invalide.")
+        return None
+
+    return None
+
+
 async def main_client() -> None:
     """Orchestration interactive du client."""
     username = input("\nUsername : ").strip()
     if not username:
         print("Username vide, abandon.")
         return
-    password = input("\nPassword (min 8 caracters): ").strip()
+    password = input("\nPassword (min 8 caractères) : ").strip()
     if not password:
         print("Password vide, abandon.")
         return
@@ -192,22 +229,34 @@ async def main_client() -> None:
     # Boucle principale — on revient ici après chaque session de chat
     while True:
         print("\n" + "─" * 40)
-        print("  Nouvelle session")
+        print("  Menu principal")
         print("─" * 40)
-        reponse = input("Êtes-vous l'initiateur de la session ? (o/n) ou 'quitter' pour sortir : ").strip().lower()
+        print("  i. Initier une connexion")
+        print("  r. Attendre une connexion (récepteur)")
+        print("  q. Quitter")
+
+        reponse = input("\nChoix : ").strip().lower()
 
         if reponse in ("quitter", "q"):
             print("Au revoir.")
             break
 
-        est_initiateur = reponse.startswith("o")
-
-        destinataire = None
-        cle_aes = None
-        if est_initiateur:
-            destinataire = input("Username du destinataire : ").strip()
+        if reponse == "r":
+            # Mode récepteur
+            destinataire = None
+            cle_aes = None
+            est_initiateur = False
+        elif reponse == "i":
+            # Mode initiateur
+            destinataire = _choisir_destinataire(username)
+            if not destinataire:
+                continue
             cle_aes = generer_cle_aes_session()
             print(f"\nClé AES de session générée. Aperçu : {cle_aes[:8].hex()}... (32 octets)")
+            est_initiateur = True
+        else:
+            print("Choix invalide.")
+            continue
 
         url = f"{BASE_WS}/chat?user={username}"
         print(f"\nConnexion à {url} ...")
@@ -217,10 +266,10 @@ async def main_client() -> None:
 
                 if est_initiateur:
                     await envoyer_cle_aes(ws, destinataire, cle_aes)
-                    maj_db(username,destinataire,datetime.now())
+                    maj_db(username, destinataire, str(datetime.now()))
                 else:
                     cle_aes, destinataire = await attendre_handshake_aes(ws, priv)
-                    maj_db(username,destinataire,datetime.now())
+                    maj_db(username, destinataire, str(datetime.now()))
                     print(
                         f"Clé AES reçue de {destinataire}."
                         f"\nAperçu : {cle_aes[:8].hex()}... ({len(cle_aes)} octets)"

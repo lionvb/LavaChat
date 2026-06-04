@@ -50,7 +50,6 @@ def get_session(username: str) -> dict:
             "destinataire":  None,
             "ws_cloudflare": None,
             "loop":          None,
-            "inbox_aes":     None,
             "inbox_chat":    None,
         }
     return sessions[username]
@@ -69,27 +68,24 @@ def init_db(username:str):
     contacts_db.commit()
     contacts_db.close()
 
-def maj_db(username:str,destinataire:str ,last_connection:str="date"):
-    try:
-        contacts_db = sqlite3.connect(f"{username}_contacts.db")
-        cursor = contacts_db.cursor()
-        cursor.execute(
-            "INSERT INTO contacts (username, last_connection) VALUES (?, ?)", 
-            (destinataire, last_connection)
-        )
-        contacts_db.commit()
-    except sqlite3.IntegrityError:
-        print("Problème dans la mise à jour de la liste des contacts")
-    finally:
-        contacts_db.close()
-
-def get_contacts_list(username:str):
+def maj_db(username: str, destinataire: str, last_connection: str = "date"):
     contacts_db = sqlite3.connect(f"{username}_contacts.db")
     cursor = contacts_db.cursor()
-    cursor.execute("SELECT username FROM contacts order by last_connection desc")
-    contacts_list=[ligne[0] for ligne in cursor.fetchall()]
+    cursor.execute(
+        "INSERT OR REPLACE INTO contacts (username, last_connection) VALUES (?, ?)",
+        (destinataire, last_connection)
+    )
+    contacts_db.commit()
     contacts_db.close()
-    return contacts_list
+
+def get_contacts_list(username: str) -> list[dict]:
+    """Retourne [{"username": ..., "last_connection": ...}, ...] triés par date décroissante."""
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute("SELECT username, last_connection FROM contacts ORDER BY last_connection DESC")
+    contacts = [{"username": row[0], "last_connection": row[1]} for row in cursor.fetchall()]
+    contacts_db.close()
+    return contacts
 
 # ── Helpers HTTP vers serveur ─────────────────────────────────────────────────
 
@@ -163,6 +159,16 @@ def connect():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@app.get("/contacts/<username>")
+def contacts(username: str):
+    if not username or username not in sessions:
+        return jsonify({"ok": False, "error": "Session inconnue."}), 400
+    try:
+        return jsonify({"ok": True, "contacts": get_contacts_list(username)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.post("/handshake/init")
 def handshake_init():
     username     = request.json.get("username", "").strip()
@@ -198,36 +204,6 @@ def handshake_init():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
-@app.post("/handshake/wait")
-def handshake_wait():
-    username = request.json.get("username", "").strip()
-    if not username:
-        return jsonify({"ok": False, "error": "Username manquant."}), 400
-    try:
-        sess   = get_session(username)
-        future = asyncio.run_coroutine_threadsafe(
-            _attendre_aes_key(sess), sess["loop"]
-        )
-        cle_aes, expediteur = future.result(timeout=60)
-        sess["cle_aes"]      = cle_aes
-        sess["destinataire"] = expediteur
-        maj_db(username=username,destinataire=expediteur,last_connection=datetime.now())
-        return jsonify({"ok": True, "destinataire": expediteur})
-    except TimeoutError:
-        return jsonify({"ok": False, "error": "Délai dépassé (60 s)."}), 408
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-
-
-async def _attendre_aes_key(sess: dict) -> tuple[bytes, str]:
-    queue = sess["inbox_aes"]
-    raw   = await asyncio.wait_for(queue.get(), timeout=60)
-    msg   = json.loads(raw)
-    aes_chiffree = base64.b64decode(msg["payload"])
-    cle_aes = dechiffrer_RSA(aes_chiffree, sess["cle_priv"])
-    if isinstance(cle_aes, str):
-        cle_aes = cle_aes.encode("utf-8")
-    return cle_aes, msg.get("from")
 
 
 @app.post("/send")
@@ -283,7 +259,6 @@ def ws_bridge(browser_ws):
     inbox = asyncio.Queue()   # messages Cloudflare → navigateur
 
     sess["loop"]       = loop
-    sess["inbox_aes"]  = asyncio.Queue()
     sess["inbox_chat"] = asyncio.Queue()
 
     async def _run():
@@ -311,24 +286,23 @@ def ws_bridge(browser_ws):
                         continue
 
                     if type_msg == "aes_key":
-                        if sess.get("cle_aes") is not None:
-                            # Déjà en session : mettre à jour la clé sans passer par handshake/wait
-                            try:
-                                aes_chiffree = base64.b64decode(msg["payload"])
-                                nouvelle_cle = dechiffrer_RSA(aes_chiffree, sess["cle_priv"])
-                                if isinstance(nouvelle_cle, str):
-                                    nouvelle_cle = nouvelle_cle.encode("utf-8")
-                                sess["cle_aes"]      = nouvelle_cle
-                                sess["destinataire"] = msg.get("from")
-                                await inbox.put(json.dumps({
-                                    "type": "session_renewed",
-                                    "from": msg.get("from"),
-                                }))
-                            except Exception:
-                                pass
-                        else:
-                            # Pas encore en session : flux handshake normal
-                            await sess["inbox_aes"].put(raw)
+                        # Toujours déchiffrer inline, que cle_aes soit None ou non.
+                        try:
+                            aes_chiffree = base64.b64decode(msg["payload"])
+                            nouvelle_cle = dechiffrer_RSA(aes_chiffree, sess["cle_priv"])
+                            if isinstance(nouvelle_cle, str):
+                                nouvelle_cle = nouvelle_cle.encode("utf-8")
+                            expediteur = msg.get("from")
+                            sess["cle_aes"]      = nouvelle_cle
+                            sess["destinataire"] = expediteur
+                            maj_db(username=username, destinataire=expediteur,
+                                   last_connection=str(datetime.now()))
+                            await inbox.put(json.dumps({
+                                "type": "session_renewed",
+                                "from": expediteur,
+                            }))
+                        except Exception:
+                            pass
                     else:
                         if type_msg == "message" and sess.get("cle_aes"):
                             try:
@@ -396,12 +370,6 @@ def session_reset():
 
     sess["cle_aes"]      = None
     sess["destinataire"] = None
-    if sess.get("inbox_aes"):
-        while not sess["inbox_aes"].empty():
-            try:
-                sess["inbox_aes"].get_nowait()
-            except Exception:
-                break
     return jsonify({"ok": True})
 
 
