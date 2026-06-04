@@ -266,10 +266,10 @@ async def main_client() -> None:
 
                 if est_initiateur:
                     await envoyer_cle_aes(ws, destinataire, cle_aes)
-                    maj_db(username, destinataire, str(datetime.now()))
+                    maj_db(username, destinataire, str(datetime.now().strftime("%y-%m-%d %H:%M:%S")))
                 else:
                     cle_aes, destinataire = await attendre_handshake_aes(ws, priv)
-                    maj_db(username, destinataire, str(datetime.now()))
+                    maj_db(username, destinataire, str(datetime.now().strftime("%y-%m-%d %H:%M:%S")))
                     print(
                         f"Clé AES reçue de {destinataire}."
                         f"\nAperçu : {cle_aes[:8].hex()}... ({len(cle_aes)} octets)"

@@ -197,7 +197,7 @@ def handshake_init():
 
         sess["cle_aes"]      = cle_aes
         sess["destinataire"] = destinataire
-        maj_db(username=username,destinataire=destinataire,last_connection=datetime.now())
+        maj_db(username=username,destinataire=destinataire,last_connection=datetime.now().strftime("%y-%m-%d %H:%M:%S"))
 
         return jsonify({"ok": True})
     except Exception as exc:
@@ -296,7 +296,7 @@ def ws_bridge(browser_ws):
                             sess["cle_aes"]      = nouvelle_cle
                             sess["destinataire"] = expediteur
                             maj_db(username=username, destinataire=expediteur,
-                                   last_connection=str(datetime.now()))
+                                   last_connection=str(datetime.now().strftime("%y-%m-%d %H:%M:%S")))
                             await inbox.put(json.dumps({
                                 "type": "session_renewed",
                                 "from": expediteur,
