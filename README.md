@@ -1,6 +1,6 @@
-# 🌋 Crypto Lava Lamp
+# 🌋 LavaChat
 
-> Chiffrement RSA dont l'entropie est générée à partir d'une source visuelle aléatoire,
+> Chat chiffré de bout en bout dont l'entropie est générée à partir d'une source visuelle aléatoire,
 > inspiré de [LavaRand](https://blog.cloudflare.com/lavarand-in-production-the-nitty-gritty-technical-details/) de Cloudflare.
 
 ---
@@ -13,6 +13,7 @@
 - [V2 : Multi-images et chiffrement de fichier](#v2--multi-images-et-chiffrement-de-fichier)
 - [V3 : Chat chiffré client-serveur (RSA + AES-256-GCM)](#v3--chat-chiffré-client-serveur-rsa--aes-256-gcm)
 - [V4 : Déploiement Hardware et Réseau Local](#v4--déploiement-hardware-et-réseau-local)
+- [V5 : Comptes persistants, contacts et tunnel Cloudflare](#v5--comptes-persistants-contacts-et-tunnel-cloudflare)
 - [Documentation](#documentation)
 
 ---
@@ -27,7 +28,7 @@ Ce projet reproduit ce principe en Python.
 
 ---
 
-## Installation
+## Installation nécessaires pour toutes les versions
 
 **Prérequis :** Python 3.8+
 
@@ -337,6 +338,204 @@ La webcam du serveur prendra une photo en direct, l'entropie sera distribuée au
 
 ---
 
+## V5 : Comptes persistants, contacts et tunnel Cloudflare
+
+La V5 est la première version utilisable entre deux personnes n'importe où sur internet. Les comptes survivent aux redémarrages du serveur, les contacts sont sauvegardés côté client, et l'accès passe par un tunnel Cloudflare.
+
+### Ce qui change
+
+- **Comptes persistants** : stockage SQLite côté serveur (`database.db`), mots de passe hashés avec bcrypt
+- **Register / Login** : le client tente un register, bascule automatiquement sur login si le compte existe déjà
+- **Contacts** : base SQLite locale par utilisateur (`{username}_contacts.db`) avec date de dernière connexion
+- **Menu interactif** : initier une session, attendre une connexion, choisir dans les contacts récents
+- **`/quitter`** : ferme proprement la session et revient au menu sans couper le programme
+- **Tunnel Cloudflare** : le serveur est accessible depuis internet via une URL publique à configurer dans `client.py` et `app.py`
+- **Messages éphémères** : les messages ne sont pas sauvegardés, ils s'effacent à la fin de chaque session
+
+### Architecture
+
+```
+LavaChat/
+├── docs/
+│   ├── Cryptologie.md
+│   ├── Notes_V*.md
+│   └── Pictures/
+├── src/
+│   ├── server/
+│   │   ├── server.py               # FastAPI + SQLite + bcrypt
+│   │   ├── number_generator/
+│   │   │   └── setup.py
+│   │   └── Pictures/
+│   ├── client/
+│   │   └── client.py               # CLI interactif + contacts SQLite
+│   ├── gui/
+│   │   ├── app.py                  # Interface graphique web (Flask)
+│   │   └── templates/
+│   │       └── index.html          # UI : connexion, handshake, chat
+│   ├── encrypt_decrypt/
+│   │   ├── key_generator.py
+│   │   └── encrypt_decrypt.py
+│   └── main.py
+├── requirements.txt
+└── README.md
+```
+
+---
+
+### Installation : Client
+
+L'URL du tunnel Cloudflare est à renseigner dans **deux fichiers** selon l'interface choisie :
+
+```python
+# src/client/client.py  (interface CLI)
+URL_CLOUDFLARE = "xxxxx-xxxxx-xxxxx-xxxxx.trycloudflare.com"
+
+# src/gui/app.py  (interface graphique)
+URL_CLOUDFLARE = "xxxxx-xxxxx-xxxxx-xxxxx.trycloudflare.com"
+```
+
+**Interface CLI :**
+
+```bash
+python -m src.client.client
+```
+
+**Interface graphique (ouverture automatique dans le navigateur) :**
+
+```bash
+python -m src.gui.app
+```
+
+---
+
+### Installation : Hébergement du serveur
+
+**Prérequis :** Machine Linux (Debian recommandé), Python 3.10+
+
+**1. Cloner et installer les dépendances**
+
+```bash
+git clone https://github.com/lionvb/Projet-cryptage-lampe-lave.git
+cd Projet-cryptage-lampe-lave
+pip install -r requirements.txt
+```
+
+**2. Lancer le serveur**
+
+```bash
+uvicorn src.server.server:app --host 0.0.0.0 --port 8000
+```
+
+**3. Exposer le serveur sur internet avec Cloudflare Tunnel**
+
+Dans un **second terminal**, installer et lancer cloudflared :
+
+```bash
+# Installation (Debian/Ubuntu)
+wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared-linux-amd64.deb
+
+# Lancer le tunnel
+cloudflared tunnel --url http://localhost:8000
+```
+
+Cloudflared affiche une URL publique qu'il faut communiquer aux clients :
+
+```
+Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):
+https://xxxxx-xxxxx-xxxxx-xxxxx.trycloudflare.com
+```
+
+Le fichier `database.db` est créé automatiquement dans le dossier courant au premier lancement.
+
+---
+
+### Utilisation V5 : 4 terminaux requis
+
+Deux interfaces sont disponibles au choix, CLI ou graphique. Elles fonctionnent de la même façon côté réseau.
+
+**Interface graphique**
+
+`python -m src.gui.app` ouvre automatiquement le navigateur sur `http://localhost:5000`. L'interface propose trois écrans :
+
+- **Connexion** — saisir username + mot de passe, les étapes RSA sont animées (inscription, capture entropie, génération des clés, publication)
+- **Handshake** — choisir un nouveau contact ou sélectionner dans les contacts récents, ou accepter une demande entrante
+- **Chat** — messages chiffrés AES-256-GCM, cliquer sur un message pour voir le nonce / ciphertext / tag, bouton `← nouvelle session` pour changer d'interlocuteur sans relancer l'app
+
+**Interface CLI**
+
+`python -m src.client.client` menu texte dans le terminal, même fonctionnalité.
+
+**Terminal 1 : Serveur** (machine Debian)
+
+```bash
+uvicorn src.server.server:app --host 0.0.0.0 --port 8000
+```
+
+**Terminal 2 : Tunnel Cloudflare** (même machine)
+
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+
+→ Copier l'URL affichée et la communiquer aux clients.
+
+---
+
+**Terminal 3 : Client récepteur** (se connecter en premier)
+
+```bash
+python -m src.client.client
+```
+
+```
+Username : bob
+Password (min 8 caractères) : ••••••••
+
+  Menu principal
+  i. Initier une connexion
+  r. Attendre une connexion (récepteur)
+  q. Quitter
+
+Choix : r
+Connecté en tant que bob. En attente de la clé AES...
+```
+
+---
+
+**Terminal 4 : Client initiateur**
+
+```bash
+python -m src.client.client
+```
+
+```
+Username : alice
+Password (min 8 caractères) : ••••••••
+
+  Menu principal
+  i. Initier une connexion
+  r. Attendre une connexion (récepteur)
+  q. Quitter
+
+Choix : i
+
+  Établir une session
+  1. Nouvelle connexion
+  2. Rouvrir une connexion
+  q. Annuler
+
+Choix : 1
+Username du destinataire : bob
+
+Clé AES envoyée (chiffrée RSA) à bob.
+Chat en cours avec bob. Tape '/quitter' pour revenir au menu.
+```
+
+Chaque message est chiffré en AES-256-GCM avant envoi. Tape **`/quitter`** pour fermer la session et revenir au menu.
+
+---
+
 ## Documentation
 
 | Fichier | Contenu |
@@ -346,3 +545,4 @@ La webcam du serveur prendra une photo en direct, l'entropie sera distribuée au
 | [`docs/Notes_V2.md`](docs/Notes_V2.md) | Contraintes et décisions de la V2 |
 | [`docs/Notes_V3.md`](docs/Notes_V3.md) | Contraintes et décisions de la V3 |
 | [`docs/Notes_V4.md`](docs/Notes_V4.md) | Contraintes et décisions de la V4 |
+| [`docs/Notes_V5.md`](docs/Notes_V5.md) | Contraintes et décisions de la V5 |
