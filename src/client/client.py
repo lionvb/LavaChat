@@ -5,6 +5,8 @@ import base64
 import httpx
 import websockets
 
+import sqlite3
+from datetime import datetime
 """python -m src.client.client"""
 
 from src.encrypt_decrypt.encrypt_decrypt import (
@@ -20,22 +22,63 @@ from src.encrypt_decrypt.key_generator import (
 )
 #Partage Victor : 10.211.31.253
 #Partage Louis  : 10.112.177.253
-IP_SERV = "10.112.177.253"
+URL_CLOUDFLARE = "fitness-gabriel-currency-adventure.trycloudflare.com"
+BASE_HTTP = f"https://{URL_CLOUDFLARE}"
+BASE_WS = f"wss://{URL_CLOUDFLARE}" 
 
-BASE_HTTP = f"http://{IP_SERV}:8000"
-BASE_WS = f"ws://{IP_SERV}:8000"  
+# INITIALISATION DE LA BASE DE DONNÉES SQL DES CONTACTS
+def init_db(username:str):
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            last_connection TEXT NOT NULL
+        )
+    """)
+    contacts_db.commit()
+    contacts_db.close()
 
+def maj_db(username: str, destinataire: str, last_connection: str = "date"):
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO contacts (username, last_connection) VALUES (?, ?)",
+        (destinataire, last_connection)
+    )
+    contacts_db.commit()
+    contacts_db.close()
+
+def get_contacts_list(username: str) -> list[tuple[str, str]]:
+    """Retourne [(username, last_connection), ...] triés par date décroissante."""
+    contacts_db = sqlite3.connect(f"{username}_contacts.db")
+    cursor = contacts_db.cursor()
+    cursor.execute("SELECT username, last_connection FROM contacts ORDER BY last_connection DESC")
+    contacts = cursor.fetchall()
+    contacts_db.close()
+    return contacts
 
 def set_username():
     username=input("\nQuelle est votre username ? : ")
     return username
 
-def enregistrer(username: str) -> None:
-    """Inscrit un username via POST /register. Idempotent (409 toléré)."""
+def enregistrer(username: str,password: str) -> None:
+    """Inscrit un nouvel utilisateur ou connecte un utilisateur existant."""
     with httpx.Client() as client:
-        r = client.post(f"{BASE_HTTP}/register", json={"username": username})
-        if r.status_code not in (201, 409):
+        # 1. On tente d'abord de l'inscrire
+        r = client.post(f"{BASE_HTTP}/register", json={"username": username,"password":password})
+        if r.status_code == 409:
+            # 2. Le compte existe déjà ! On bascule sur la route de connexion
+            r_login = client.post(f"{BASE_HTTP}/login", json={"username": username,"password":password})
+            if r_login.status_code == 401:
+                print("\n[ERREUR] Mot de passe incorrect pour cet utilisateur.")
+                exit(1)
+            r_login.raise_for_status()
+
+        elif r.status_code != 201:
             r.raise_for_status()
+        init_db(username)
 
 
 def obtenir_seed() -> str:
@@ -65,7 +108,7 @@ def recuperer_cle(destinataire: str) -> dict:
     data = r.json()
     return {"n": data["n"], "e": data["e"]}
 
-def initialiser_session(username: str) -> tuple[dict, dict]:
+def initialiser_session(username: str,password: str) -> tuple[dict, dict]:
     """
     Phase d'initialisation locale commune à tous les clients :
     inscription, obtention d'une seed, dérivation de la paire RSA,
@@ -74,7 +117,7 @@ def initialiser_session(username: str) -> tuple[dict, dict]:
     Retourne (cle_publique, cle_privee), chacune au format
     {"n": int, "e": int} ou {"n": int, "d": int}.
     """
-    enregistrer(username)
+    enregistrer(username,password)
     seed_bytes = bytes.fromhex(obtenir_seed())
     nb1, nb2, _ = seed_vers_grands_entiers(seed_bytes)
     cle_publique, cle_privee = generer_cles_rsa(nb1, nb2)
@@ -130,31 +173,91 @@ async def envoyer_cle_aes(ws, destinataire: str, cle_aes: bytes) -> None:
     await ws.send(json.dumps(message))
     print(f"Clé AES envoyée (chiffrée RSA) à {destinataire}.")
 
+def _choisir_destinataire(username: str) -> str | None:
+    """
+    Affiche le menu de choix du destinataire :
+      1. Nouvelle connexion (saisir un username)
+      2. Rouvrir une connexion existante (liste des contacts)
+    Retourne le username choisi, ou None pour annuler.
+    """
+    contacts = get_contacts_list(username)
+
+    print("\n" + "─" * 40)
+    print("  Établir une session")
+    print("─" * 40)
+    print("  1. Nouvelle connexion")
+    if contacts:
+        print("  2. Rouvrir une connexion")
+    print("  q. Annuler")
+
+    choix = input("\nChoix : ").strip().lower()
+
+    if choix == "1":
+        dest = input("Username du destinataire : ").strip()
+        return dest if dest else None
+
+    if choix == "2" and contacts:
+        print("\nContacts récents :")
+        for i, (c_user, c_date) in enumerate(contacts, 1):
+            print(f"  {i}. {c_user}  (dernière connexion : {c_date})")
+        selection = input("\nNuméro du contact : ").strip()
+        try:
+            idx = int(selection) - 1
+            if 0 <= idx < len(contacts):
+                return contacts[idx][0]
+        except ValueError:
+            pass
+        print("Sélection invalide.")
+        return None
+
+    return None
+
+
 async def main_client() -> None:
     """Orchestration interactive du client."""
     username = input("\nUsername : ").strip()
     if not username:
         print("Username vide, abandon.")
         return
-
-    pub, priv = initialiser_session(username)
+    password = input("\nPassword (min 8 caractères) : ").strip()
+    if not password:
+        print("Password vide, abandon.")
+        return
+    pub, priv = initialiser_session(username, password)
     print(f"\nSession initialisée pour {username}.")
 
-    # Choix du rôle
-    reponse = input("\nÊtes-vous l'initiateur de la session ? (o/n) : ").strip().lower()
-    est_initiateur = reponse.startswith("o")
+    # Boucle principale — on revient ici après chaque session de chat
+    while True:
+        print("\n" + "─" * 40)
+        print("  Menu principal")
+        print("─" * 40)
+        print("  i. Initier une connexion")
+        print("  r. Attendre une connexion (récepteur)")
+        print("  q. Quitter")
 
-    destinataire = None
-    cle_aes = None
-    if est_initiateur:
-        destinataire = input("Username du destinataire : ").strip()
-        cle_aes = generer_cle_aes_session()
-        print(f"\nClé AES de session générée. Aperçu : {cle_aes[:8].hex()}... (32 octets)")
+        reponse = input("\nChoix : ").strip().lower()
 
-    # Connexion WS et handshake
-    url = f"{BASE_WS}/chat?user={username}"
-    print(f"\nConnexion à {url} ...")
-    try:
+        if reponse in ("quitter", "q"):
+            print("Au revoir.")
+            break
+
+        if reponse == "r":
+            # Mode récepteur
+            destinataire = None
+            cle_aes = None
+            est_initiateur = False
+        elif reponse == "i":
+            # Mode initiateur
+            destinataire = _choisir_destinataire(username)
+            if not destinataire:
+                continue
+            cle_aes = generer_cle_aes_session()
+            print(f"\nClé AES de session générée. Aperçu : {cle_aes[:8].hex()}... (32 octets)")
+            est_initiateur = True
+        else:
+            print("Choix invalide.")
+            continue
+
         url = f"{BASE_WS}/chat?user={username}"
         print(f"\nConnexion à {url} ...")
         try:
@@ -163,22 +266,24 @@ async def main_client() -> None:
 
                 if est_initiateur:
                     await envoyer_cle_aes(ws, destinataire, cle_aes)
+                    maj_db(username, destinataire, str(datetime.now().strftime("%y-%m-%d %H:%M:%S")))
                 else:
                     cle_aes, destinataire = await attendre_handshake_aes(ws, priv)
+                    maj_db(username, destinataire, str(datetime.now().strftime("%y-%m-%d %H:%M:%S")))
                     print(
                         f"Clé AES reçue de {destinataire}."
                         f"\nAperçu : {cle_aes[:8].hex()}... ({len(cle_aes)} octets)"
                     )
 
-                print(f"\nChat en cours avec {destinataire}. Tape ton message + Entrée. Ctrl+C pour quitter.\n")
+                print(f"\nChat en cours avec {destinataire}. Tape '/quitter' pour revenir au menu.\n")
                 await asyncio.gather(
                     boucle_envoyer(ws, cle_aes, destinataire),
                     boucle_recevoir(ws, cle_aes),
                 )
         except websockets.exceptions.ConnectionClosed as e:
-            print(f"\nFermée — code={e.code} reason={e.reason!r}")
-    except websockets.exceptions.ConnectionClosed as e:
-        print(f"\nFermée — code={e.code} reason={e.reason!r}")
+            print(f"\nSession fermée — code={e.code} reason={e.reason!r}")
+
+        print("\nSession terminée.")
 
 def traiter_aes_key(message: dict, cle_privee: dict) -> bytes:
     """
@@ -214,7 +319,7 @@ async def attendre_handshake_aes(ws, cle_privee: dict) -> tuple[bytes, str]:
 
 
 async def boucle_envoyer(ws, cle_aes: bytes, destinataire: str) -> None:
-    """Lit le clavier, chiffre AES-GCM, envoie sur la WS."""
+    """Lit le clavier, chiffre AES-GCM, envoie sur la WS. '/quitter' ferme la session."""
     while True:
         try:
             texte = await asyncio.to_thread(input, "")
@@ -222,6 +327,11 @@ async def boucle_envoyer(ws, cle_aes: bytes, destinataire: str) -> None:
             return
         if not texte:
             continue
+
+        if texte.strip().lower() == "/quitter":
+            print("\nFermeture de la session en cours...")
+            await ws.close()
+            return
 
         nonce, chiffre = chiffrement_AES(cle_aes, texte)
         # AES-GCM : les 16 derniers octets de la sortie sont le tag d'authentification.

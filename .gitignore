@@ -3,3 +3,8 @@ __pycache__/
 docs/message_chiffre.txt
 docs/message_dechiffre.txt
 docs/message.txt
+test_entropie.jpg
+
+# Database
+database.db
+*_contacts.db
