@@ -545,4 +545,3 @@ Chaque message est chiffré en AES-256-GCM avant envoi. Tape **`/quitter`** pour
 | [`docs/Notes_V2.md`](docs/Notes_V2.md) | Contraintes et décisions de la V2 |
 | [`docs/Notes_V3.md`](docs/Notes_V3.md) | Contraintes et décisions de la V3 |
 | [`docs/Notes_V4.md`](docs/Notes_V4.md) | Contraintes et décisions de la V4 |
-| [`docs/Notes_V5.md`](docs/Notes_V5.md) | Contraintes et décisions de la V5 |
